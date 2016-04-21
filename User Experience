@@ -1,0 +1,83 @@
+## this will be my user experience calcualtion
+##set work space
+setwd("~/Rindstud")
+## load libraries
+## multiple at once
+x<- c("raster", "rgdal", "maptools",
+      "sp", "dismo", "plyr", "rgeos", 
+      "biomod2", "ggmap", "ggplot2")
+require(x)
+lapply(x, require, character.only=TRUE)
+## now read the CPW shapefile
+BEobs<- readOGR(dsn=".", layer = "BEcoloexact")
+## now read the CPW shapefile
+cpwBE<- readOGR(dsn=".", layer = "BaldEhabitatMerge")
+## using >summary(cpwBE) shows that the shapefile is projected
+## in NAD1983 UTM zone 13N
+summary(BEobs)
+## let's drop some of the data that will be unused
+## copy the Spatial Points Data Frame
+bald<- BEobs
+d<-c("recordedby", "catalognum", "collection", "month", "day", "year", 
+     "decimallon", "decimallat", "locality", "species", "gbifid")
+keeps<- bald[d]
+## now transform the data
+bepoints <- spTransform(keeps, CRS("+init=epsg:3857"))
+
+## turn into dataframe
+bald.df<- data.frame(bepoints)
+##double check it is a 'data frame'
+str(bald.df)
+## must remove rows with missing values
+str(bald.df)  ## note number of records (observations)
+complete.cases(bald.df) ## this produces a logical vector for complete rows 'TRUE'
+tester<- bald.df[complete.cases(bald.df), ]
+str(tester)
+
+## this is my unaltered point feature set
+balde<- readShapePoints("BEcoloexact")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+proj4string(balde) <- crs.geo  # define projection system of our data
+## notice that the CPW data and the GBIF data do not have the same projection/ CRS
+## so transform the GBIF data to match 
+tbald<- spTransform(balde, proj4string(cpwBE))
+
+## use plyr and count to get frequency table (recordedby)
+## this creates a data frame with the user id (recordedby), versus frequency
+recby<-count(tester, 'recordedby')
+## write function with for loop
+## first define global vars
+## max number of observations
+maxrec<- max(recby$freq)
+
+
+## create data frame to store values
+
+df=data.frame(thresh=numeric(), numb_obsrvr=numeric(),proportion=numeric(), num_pts=numeric() )
+
+
+i=0
+for (i in 1:maxrec){
+  ## get observers with at least 'i' observations
+  subobs<- subset(recby, freq>=i)
+  # Count number of observers with at least 'i' observations
+  obsnum<- nrow(subobs)
+  ## append to dataframe
+  
+  ## create list of observer ID's with greater than 'i' observations
+  obslist<- subobs$recordedby
+  ## convert to character format
+  obslist=as.character(obslist)
+  mysub<- tbald[tbald$recordedby %in% obslist, ]
+  ## number of unique points
+  uqpts<- nrow(mysub)
+  in.cpw<- !is.na(over(mysub, as(cpwBE, "SpatialPolygons")))
+  prop<-mean(in.cpw)
+  df<-rbind(df, c(i, obsnum, prop, uqpts))
+  i=i+1
+  colnames(df)<-c("i", "Num_Obsrs", "Proportion", "Number_Points") 
+  }
+save(df, file="mydataframe.Rda")
+
+
+

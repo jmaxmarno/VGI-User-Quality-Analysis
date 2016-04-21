@@ -1,0 +1,123 @@
+## this is my test for the Local Knowledge tool
+## first use a copy of the spatial points dataframe from the ExperienceFilter
+## this will be my user experience calcualtion
+##set work space
+setwd("~/Rindstud")
+## load libraries
+## multiple at once
+x<- c("raster", "rgdal", "maptools",
+      "sp", "dismo", "plyr", "rgeos", 
+      "biomod2", "ggmap", "ggplot2")
+require(x)
+lapply(x, require, character.only=TRUE)
+
+## now read the CPW shapefile
+BEobs<- readOGR(dsn=".", layer = "BEcoloexact")
+## now read the CPW shapefile not needed right now
+cpwBE<- readOGR(dsn=".", layer = "BaldEhabitatMerge")
+## using >summary(cpwBE) shows that the shapefile is projected
+## in NAD1983 UTM zone 13N
+StColo<- readOGR(dsn=".", layer = "ColoradoGCSNAD1983")
+bald<- BEobs
+d<-c("recordedby", "catalognum", "collection", "month", "day", "year",
+     "decimallon", "decimallat", "locality", "species", "gbifid")
+BEobspoints<- bald[d]
+
+bald.df<- data.frame(BEobspoints)
+##double check it is a 'data frame'
+## to see internal structure: str(bald.df)
+## must remove rows with missing values
+str(bald.df)  ## note number of records (observations)
+complete.cases(bald.df) ## this produces a logical vector for complete rows 'TRUE'
+BEcomplete<- bald.df[complete.cases(bald.df), ]
+
+## now back to spatial points data frame
+coordinates(BEcomplete) = c("decimallon", "decimallat")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+proj4string(BEcomplete) <- crs.geo  # define projection system of our data
+
+## Project cpw polygon shapefile
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+cpwBE<- spTransform(cpwBE, crs.geo)
+proj4string(cpwBE) <- crs.geo
+
+## create loop that calculates the Mean Center Coordinates for Each unique observer ID ('recordedby')
+## include gCentroid for entire population in table
+## try using complete entries only
+popcent = gCentroid(BEcomplete)
+obsname = "PopulationCentroid"
+obsname=as.data.frame(obsname)
+OID ="Row NA"
+OID=as.data.frame(OID)
+ddf = cbind(OID, obsname)
+gcspdf = SpatialPointsDataFrame(coords = popcent, data = ddf)
+
+gcs.df = as.data.frame(gcspdf)
+##Create Empty Data Frame for Mean Center Coordinates
+MCdf<-data.frame("recordedby"=character(), "decimallat"=numeric(), "decimallon"=numeric(), stringsAsFactors = FALSE )
+## create loop that calculates the Mean Center Coordinates for Each unique observer ID ('recordedby')
+
+## only unique observer id's
+oname<- as.data.frame(BEcomplete$recordedby)
+urs<- unique(oname)
+## run loop using each individual 'recordedby' id
+i=0
+for (i in 1:(nrow(urs)) ){
+  ## get unique values
+  obsname = as.character(urs[i, ])
+  ptsub = subset(BEcomplete, BEcomplete$recordedby == obsname)
+  gcent = gCentroid(ptsub)
+  obsname = as.data.frame(obsname)
+  OID = as.character(i)
+  obsdata= cbind(OID, obsname)
+  mspd = SpatialPointsDataFrame(coords=gcent, data= obsdata)
+  gcspdf = rbind(gcspdf, mspd)
+ 
+  i=i+1
+}
+
+## test the spDistN1 tool
+cen = gcspdf[34, ]
+obspoint = BEcomplete[34, ]
+## using longlat=TRUE means the output is in kilometers
+## ^ refering to great circle distance and WGS 84 (need to double check this)
+spDistsN1(cen, obspoint, longlat=TRUE)
+
+## empty dataframe to store OID and gcent distance
+oidgcent.df<- data.frame("obid"=factor(), gcentdist= numeric())
+
+## write script that appends distance from gCent for each point
+## add empty column to the BEcomplete SPdataframe
+BEcomplete@data["GcentDist"] <- NA
+##loop for each individual point, and observer
+i=0
+for (i in 1: length(BEcomplete)){
+  thepoint <- BEcomplete[i, ]
+  onam <- as.character(BEcomplete@data$recordedby[i])
+  obid<- as.character(BEcomplete@data$catalognum[i])
+  ##gcentroid point
+  gct<- subset(gcspdf, obsname==onam)
+  dval<- spDistsN1(thepoint, gct, longlat = TRUE)
+  dt= data.frame(obid, dval)
+  oidgcent.df = rbind(oidgcent.df, dt)
+  BEcomplete@data$GcentDist[i]<- dval
+  }
+## Add column that contains GcentDist/ standard deviation of population Gcentdist
+sd.pop.gcent <- sd(BEcomplete@data$GcentDist)
+BEcomplete@data$Gcent.sd = BEcomplete@data$GcentDist/sd.pop.gcent
+
+## Now write comparison script
+maxdist <- max(BEcomplete@data$GcentDist)
+#empty df
+df=data.frame(i=numeric(), num_pts=numeric(),propo=numeric())
+i=0
+for (i in 1: maxdist){
+  ptsub<- subset(BEcomplete, GcentDist<=i)
+  num_pts<- nrow(ptsub)
+  win.cpw<- !is.na(over(ptsub, as(cpwBE, "SpatialPolygons")))
+  propo<-mean(win.cpw)
+  df<-rbind(df, c(i, num_pts, propo))
+  print(i)
+  i=i+1
+  ##colnames(df)<-c("'i'", "NumberofPoints", "Proportionw/in")
+}

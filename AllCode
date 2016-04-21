@@ -1,0 +1,214 @@
+## VGI User Quality Analysis
+## John Max Marno
+## MsGISc June 2016
+## This analysis is intended to provide a User Quality metric for VGI point data
+## User Experience, and Local Knowledge are incorporated as part of the User Quality Proxy
+## Data is taken from the GBIF (test data), and Colorado Parks and Wildlife (reference data)
+
+####################################################################################################
+
+## Load Necessary Packages and set work space
+##set work space
+setwd("~/Rindstud")
+## load libraries
+## multiple at once
+x<- c("raster", "rgdal", "maptools",
+      "sp", "dismo", "plyr", "rgeos", 
+      "biomod2", "ggmap", "ggplot2")
+require(x)
+lapply(x, require, character.only=TRUE)
+####################################################################################################
+## Read and Load Datasets
+##GBIF VGI Test Data:
+BEobs<- readOGR(dsn=".", layer = "BEcoloexact")
+## now read the CPW shapefile
+cpwBE<- readOGR(dsn=".", layer = "BaldEhabitatMerge")
+## using >summary(cpwBE) shows that the shapefile is projected
+## in NAD1983 UTM zone 13N
+## load Study Area Bounding Box (state of Colorado)
+StColo<- readOGR(dsn=".", layer = "ColoradoGCSNAD1983")
+## to make data easier to read, remove unncessary columns(can be returned later)
+bald<- BEobs
+d<-c("recordedby", "catalognum", "collection", "month", "day", "year",
+     "decimallon", "decimallat", "locality", "species", "gbifid")
+BEobspoints<- bald[d]
+####################################################################################################
+## Remove Incomplete Results
+## as.data.frame
+bald.df<- data.frame(BEobspoints)
+## must remove rows with missing values
+str(bald.df)  ## note number of records (observations)
+complete.cases(bald.df) ## this produces a logical vector for complete rows 'TRUE'
+BEcomplete<- bald.df[complete.cases(bald.df), ]
+## now back to spatial points data frame
+coordinates(BEcomplete) = c("decimallon", "decimallat")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+proj4string(BEcomplete) <- crs.geo  # define projection system of our data
+####################################################################################################
+## Project cpw polygon shapefile
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+cpwBE<- spTransform(cpwBE, crs.geo)
+proj4string(cpwBE) <- crs.geo
+####################################################################################################
+
+## Calculate Gcentroid Coordinates for Each unique observer ID ('recordedby')
+## include gCentroid for entire population in table
+## try using complete entries only
+popcent = gCentroid(BEcomplete)
+obsname = "PopulationCentroid"
+obsname=as.data.frame(obsname)
+OID ="Row NA"
+OID=as.data.frame(OID)
+Gcent.pop.df = cbind(OID, obsname)
+GCS.SPDF = SpatialPointsDataFrame(coords = popcent, data = Gcent.pop.df)
+####################################################################################################
+
+## Get vector of unique Observer ID's
+oname<- as.data.frame(BEcomplete$recordedby)
+urs<- unique(oname)
+## Calculate Gcentroid coordinates of all Observations by Observer ID
+i=0
+for (i in 1:(nrow(urs)) ){
+  ## get unique values
+  obsname = as.character(urs[i, ])
+  ptsub = subset(BEcomplete, BEcomplete$recordedby == obsname)
+  gcent = gCentroid(ptsub)
+  obsname = as.data.frame(obsname)
+  OID = as.character(i)
+  obsdata= cbind(OID, obsname)
+  new.spdf = SpatialPointsDataFrame(coords=gcent, data= obsdata)
+  GCS.SPDF = rbind(GCS.SPDF, new.spdf)
+  i=i+1
+}
+dr<- getwd()
+writeOGR(GCS.SPDF, dr, "UserCentroid.new", driver = "ESRI Shapefile", overwrite_layer = TRUE)
+####################################################################################################
+## Now Measure distance between each observation and its respective user centroid (Local Knowledge)
+i=0
+for (i in 1: length(BEcomplete)){
+  thepoint <- BEcomplete[i, ]
+  onam <- as.character(BEcomplete@data$recordedby[i])
+  obid<- as.character(BEcomplete@data$catalognum[i])
+  ##gcentroid point
+  gct<- subset(GCS.SPDF, obsname==onam)
+  dval<- spDistsN1(thepoint, gct, longlat = TRUE)
+  ##dt= data.frame(obid, dval)
+  ##oidgcent.df = rbind(oidgcent.df, dt)
+  ## Append distance value to VGI test data data frame
+  BEcomplete@data$GcentDist[i]<- dval
+  ## Let's also append a column containing the number of observations made by the User (including that observation)
+  ## User Experience
+  count.table <- count(BEcomplete@data, 'recordedby')
+  count.freq <- count.table$freq[count.table$recordedby==onam]
+  BEcomplete@data$obs.count[i]<- count.freq
+}
+## Add column that contains GcentDist/ standard deviation of population Gcentdist
+sd.pop.gcent <- sd(BEcomplete@data$GcentDist)
+BEcomplete@data$Gcent.sd = BEcomplete@data$GcentDist/sd.pop.gcent
+## save the updated spatial points data frame
+dr<- getwd()
+writeOGR(BEcomplete, dr, "BEcomplete.new", driver = "ESRI Shapefile", overwrite_layer = TRUE)
+####################################################################################################
+## Compare agains CPW reference Polygons (Species Activity Map)
+## Will Run 2 Separate times for each indicator (Local Knowledge, and User Experience)
+
+## User Experience
+maxfreq <- max(BEcomplete@data$obs.count)
+##empty df
+##df=data.frame(i=numeric(), num_pts=numeric(),propo=numeric())
+df.rows <- maxdist
+UE.df<- data.frame(matrix(0, ncol=3, nrow=df.rows))
+colnames(df)<-c("Obs.Count", "NumberofPoints", "Proportion_w/in")
+i=0
+for (i in 1:maxfreq){
+  UE.sub<- subset(BEcomplete, obs.count>=i)
+  num.pts<- nrow(UE.sub)
+  vs.cpw<- !is.na(over(UE.sub, as(cpwBE, "SpatialPolygons")))
+  propo<-mean(vs.cpw)
+  ## append data
+  UE.df[i,]= c(i, num.pts, propo)
+  
+  ##df<-rbind(df, c(i, num_pts, propo))
+  print(i)
+  i=i+1
+  colnames(UE.df)<-c("Obs.Count", "NumberofPoints", "Proportion_w/in")
+}
+##############################
+## Local Knowledge
+## Now write comparison script
+maxdist <- max(BEcomplete@data$GcentDist)+1
+#empty df
+df.rows <- maxdist
+LK.df <- data.frame(matrix(0, ncol=3, nrow=df.rows))
+colnames(LK.df)<-c("G.Centroid.Dist", "NumberofPoints", "Proportionw/in")
+i=0
+for (i in 1:maxdist){
+  GD.subset<- subset(BEcomplete, GcentDist<=i)
+  num_pts<- nrow(GD.subset)
+  win.cpw<- !is.na(over(GD.subset, as(cpwBE, "SpatialPolygons")))
+  proportion<-mean(win.cpw)
+  ## try
+  LK.df[i,]= c(i, num_pts, proportion)
+  
+  ##df<-rbind(df, c(i, num_pts, propo))
+  print(i)
+  i=i+1
+}
+colnames(LK.df)<-c("CentroidDistance", "NumberofPoints", "Proportionw/in")
+##########################################################################################
+
+## Create data frame based on User ID to aggregate experience and familiarity
+## Count number of unique users
+obs.count<- count(BEcomplete@data, 'recordedby')
+rown<- nrow(rec.count)
+i=0
+for (i in 1:rown){
+  u.oid= obs.count$recordedby[i]
+  char.oid= as.character(u.oid)
+  gcent.sub= subset(BEcomplete, BEcomplete@data$recordedby==char.oid)
+ 
+  gcent.mean <- mean(as.numeric(gcent.sub@data$GcentDist))
+  gcent.sd <- sd(as.numeric(gcent.sub@data$GcentDist), na.rm = TRUE)
+  obs.count$gcentmean[i] = gcent.mean
+  obs.count$gcent.sd[i] = gcent.sd
+
+  i=i+1
+}
+##########################################################################################
+## Run Analysis with SD of each unique user
+
+maxgcent<- max(obs.count$gcent.sd, na.rm = TRUE)+1
+## create data frame to store values
+USR.GC.df=data.frame(thresh=numeric(), numb_obsrvr=numeric(),proportion=numeric(), num_pts=numeric() )
+i=0
+for (i in 1:maxrec){
+  ## get observers with at least 'i' observations
+  sub.gcent<- subset(obs.count, gcent.sd<=i)
+  # Count number of observers with at least 'i' observations
+  obsnum<- nrow(sub.gcent)
+  ## append to dataframe
+  
+  ## create list of observer ID's with greater than 'i' observations
+  obslist<- sub.gcent$recordedby
+  ## convert to character format
+  obslist=as.character(obslist)
+  mysub<- BEcomplete[BEcomplete@data$recordedby %in% obslist, ]
+  ## number of unique points
+  uqpts<- nrow(mysub)
+  in.cpw<- !is.na(over(mysub, as(cpwBE, "SpatialPolygons")))
+  prop<-mean(in.cpw)
+  USR.GC.df<-rbind(USR.GC.df, c(i, obsnum, prop, uqpts))
+  i=i+1
+  colnames(USR.GC.df)<-c("Gcentroid.thresh", "Num_Urs_Retained", "Proportion", "Num_Pts_Retained") 
+}
+save(USR.GC.df, file="USR.GC.df.Rda")
+
+##################################################################################
+## Run example subset
+UE.thresh <- 10
+LK.thresh <-50
+test.subset<- subset(BEcomplete, GcentDist<=LK.thresh )
+in.cpw<- !is.na(over(test.subset, as(cpwBE, "SpatialPolygons")))
+test.prop<-mean(in.cpw)
+nrow(test.subset)
+print(test.prop)

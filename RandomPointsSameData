@@ -1,0 +1,59 @@
+## this is my test for the Local Knowledge tool
+## first use a copy of the spatial points dataframe from the ExperienceFilter
+## this will be my user experience calcualtion
+##set work space
+setwd("~/Rindstud")
+## load libraries
+## multiple at once
+x<- c("raster", "rgdal", "maptools",
+      "sp", "dismo", "plyr", "rgeos", 
+      "biomod2", "ggmap", "ggplot2")
+require(x)
+lapply(x, require, character.only=TRUE)
+## define WGS84 common coordinate system/ projection
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+## now read the CPW shapefile
+BEobs<- readOGR(dsn=".", layer = "BEcoloexact")
+## now read the CPW shapefile not needed right now
+cpwBE<- readOGR(dsn=".", layer = "BaldEhabitatMerge")
+## using >summary(cpwBE) shows that the shapefile is projected
+## in NAD1983 UTM zone 13N
+## Project cpw polygon shapefile
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+cpwBE<- spTransform(cpwBE, crs.geo)
+proj4string(cpwBE) <- crs.geo
+## as is the State Boundary
+StColo<- readOGR(dsn=".", layer = "ColoradoGCSNAD1983")
+StColo<- spTransform(StColo, crs.geo)
+
+bald<- BEobs
+d<-c("recordedby", "catalognum", "collection", "month", "day", "year",
+     "decimallon", "decimallat", "locality", "species", "gbifid")
+BEobspoints<- bald[d]
+
+bald.df<- data.frame(BEobspoints)
+##double check it is a 'data frame'
+## to see internal structure: str(bald.df)
+## must remove rows with missing values
+str(bald.df)  ## note number of records (observations)
+complete.cases(bald.df) ## this produces a logical vector for complete rows 'TRUE'
+BEcomplete<- bald.df[complete.cases(bald.df), ]
+## now back to spatial points data frame
+coordinates(BEcomplete) = c("decimallon", "decimallat")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+proj4string(BEcomplete) <- crs.geo  # define projection system of our data
+
+## now generate random points within the State Boundary (as bbox)
+rsam<- spsample(StColo, n=100, type="random")
+nsamp= nrow(BEcomplete)
+oname<- as.data.frame(BEcomplete$recordedby)
+urs<- unique(oname)
+numIDs = nrow(urs)
+randsamp= spsample(StColo, n=nsamp, type="random")
+## generate random Observer ID vector
+## Use same 'recordedby' values for OID column Observer ID
+BEdata <- as.data.frame(BEcomplete@data)
+randspdf <- SpatialPointsDataFrame(coords=randsamp, data = BEdata)
+
+
+

@@ -15,7 +15,7 @@ setwd("~/Rindstud")
 x<- c("raster", "rgdal", "maptools",
       "sp", "dismo", "plyr", "rgeos", 
       "biomod2", "ggmap", "ggplot2")
-require(x)
+
 lapply(x, require, character.only=TRUE)
 ####################################################################################################
 ## Read and Load Datasets
@@ -34,11 +34,12 @@ d<-c("recordedby", "catalognum", "collection", "month", "day", "year",
 BEobspoints<- bald[d]
 ####################################################################################################
 ## Remove Incomplete Results
+
 ## as.data.frame
 bald.df<- data.frame(BEobspoints)
 ## must remove rows with missing values
-str(bald.df)  ## note number of records (observations)
-complete.cases(bald.df) ## this produces a logical vector for complete rows 'TRUE'
+## str(bald.df)  ## note number of records (observations)
+##complete.cases(bald.df) ## this produces a logical vector for complete rows 'TRUE'
 BEcomplete<- bald.df[complete.cases(bald.df), ]
 ## now back to spatial points data frame
 coordinates(BEcomplete) = c("decimallon", "decimallat")
@@ -61,6 +62,7 @@ OID ="Row NA"
 OID=as.data.frame(OID)
 Gcent.pop.df = cbind(OID, obsname)
 GCS.SPDF = SpatialPointsDataFrame(coords = popcent, data = Gcent.pop.df)
+
 ####################################################################################################
 
 ## Get vector of unique Observer ID's
@@ -116,7 +118,7 @@ writeOGR(BEcomplete, dr, "BEcomplete.new", driver = "ESRI Shapefile", overwrite_
 maxfreq <- max(BEcomplete@data$obs.count)
 ##empty df
 ##df=data.frame(i=numeric(), num_pts=numeric(),propo=numeric())
-df.rows <- maxdist
+df.rows <- maxfreq
 UE.df<- data.frame(matrix(0, ncol=3, nrow=df.rows))
 colnames(df)<-c("Obs.Count", "NumberofPoints", "Proportion_w/in")
 i=0
@@ -160,7 +162,7 @@ colnames(LK.df)<-c("CentroidDistance", "NumberofPoints", "Proportionw/in")
 ## Create data frame based on User ID to aggregate experience and familiarity
 ## Count number of unique users
 obs.count<- count(BEcomplete@data, 'recordedby')
-rown<- nrow(rec.count)
+rown<- nrow(obs.count)
 i=0
 for (i in 1:rown){
   u.oid= obs.count$recordedby[i]
@@ -181,8 +183,8 @@ maxgcent<- max(obs.count$gcent.sd, na.rm = TRUE)+1
 ## create data frame to store values
 USR.GC.df=data.frame(thresh=numeric(), numb_obsrvr=numeric(),proportion=numeric(), num_pts=numeric() )
 i=0
-for (i in 1:maxrec){
-  ## get observers with at least 'i' observations
+for (i in 1:maxgcent){
+  ## get observers with observation Standard Deviation of at least 'i'
   sub.gcent<- subset(obs.count, gcent.sd<=i)
   # Count number of observers with at least 'i' observations
   obsnum<- nrow(sub.gcent)
@@ -202,6 +204,8 @@ for (i in 1:maxrec){
   colnames(USR.GC.df)<-c("Gcentroid.thresh", "Num_Urs_Retained", "Proportion", "Num_Pts_Retained") 
 }
 save(USR.GC.df, file="USR.GC.df.Rda")
+
+write.csv(USR.GC.df, file = "USR.GC.df.csv")
 
 ##################################################################################
 ## Run example subset

@@ -1,0 +1,65 @@
+## Plot open street map for denver in R
+library(ggmap)
+mapImage <- get_map(location =b, color = "color", source = "osm", maptype = "terrain",zoom = 7)
+
+ggmap(mapImage) +
+  geom_polygon(aes(x = long,
+                   y = lat,
+                   group = group),
+               data = cpw.apts,
+               color = 'red',
+               fill = 'red',
+               alpha = 1) 
+labs(x = "Longitude",
+     y = "Latitude") 
+ggtitle("CPW Species Activity Map")
+
+## osm map
+osmmap<- get_openstreetmap()
+## load Study Area Bounding Box (state of Colorado)
+StColo<- readOGR(dsn=".", layer = "ColoradoGCSNAD1983")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+CO.st<- spTransform(StColo, crs.geo)
+proj4string(CO.st) <- crs.geo
+CO.bbox<- bbox(CO.st)
+osmmap<- get_map(location=CO.bbox, maptype= "roadmap", source="osm")
+dlon<- c(-105.10984, -104.617737)
+dlat<- c(39.614231, 39.914082)
+
+################################################################################
+## Plot CPW and GBIF points (subsetted)
+## Colorado Parks and Wildlife Data
+CPW<-readOGR(dsn=".", layer = "BaldEhabitatMerge")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+CPW<- spTransform(CPW, crs.geo)
+proj4string(cpwBE) <- crs.geo
+
+## GBIF Data
+## Run example subset
+UE.thresh <- 10
+LK.thresh <-50
+test.subset<- subset(BEcomplete, GcentDist<=LK.thresh & obs.count >=UE.thresh )
+in.cpw<- !is.na(over(test.subset, as(CPW, "SpatialPolygons")))
+test.prop<-mean(in.cpw)
+
+gbif.pts <- test.subset
+############################################################################
+plot(coordinates(gbif.pts), type="n")
+map("world", region="usa", add=TRUE)
+plot(CPW, border="green", col='green', add=TRUE)
+
+title(paste("Bald Eagle Observation Subset, 84.18% Consistency"))
+## now plot the actual points based on location
+points(gbif.pts[in.cpw, ], pch=16, col='blue')
+points(gbif.pts[!in.cpw, ], pch=1, col='red')
+## insert legend
+legend("bottomright", cex=0.85,
+       c("Observation within SAM", "Observation not within SAM", "SAM - SpeciesActivityMap"),
+       pch=c(16, 1, NA), lty=c(NA, NA, 1),
+       col=c("blue", "red", "green"), bg="grey90")
+##, bty="n"
+# write the augmented observations to a .csv file
+#write.csv(tbald, "EagleObsbySAM.csv", row.names=FALSE)
+
+# ...or create a shapefile from the points
+#writeOGR(tbald, ".", "EagleObservations", driver="ESRI Shapefile")

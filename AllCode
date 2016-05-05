@@ -83,7 +83,7 @@ for (i in 1:(nrow(urs)) ){
   i=i+1
 }
 dr<- getwd()
-writeOGR(GCS.SPDF, dr, "UserCentroid.new", driver = "ESRI Shapefile", overwrite_layer = TRUE)
+writeOGR(GCS.SPDF, dr, "UserG_Centroid.new", driver = "ESRI Shapefile", overwrite_layer = TRUE)
 ####################################################################################################
 ## Now Measure distance between each observation and its respective user centroid (Local Knowledge)
 i=0
@@ -133,8 +133,11 @@ for (i in 1:maxfreq){
   ##df<-rbind(df, c(i, num_pts, propo))
   print(i)
   i=i+1
-  colnames(UE.df)<-c("Obs.Count", "NumberofPoints", "Proportion_w/in")
+  colnames(UE.df)<-c("Observations per User", "NumberofPoints", "Proportion w/in Reference Data")
 }
+jpeg('UserExperienceScatter.jpeg')
+plot(UE.df)
+dev.off()
 ##############################
 ## Local Knowledge
 ## Now write comparison script
@@ -157,9 +160,13 @@ for (i in 1:maxdist){
   i=i+1
 }
 colnames(LK.df)<-c("CentroidDistance", "NumberofPoints", "Proportionw/in")
+jpeg('LocalKnowledgeScatter.jpeg')
+plot(LK.df)
+dev.off()
 ##########################################################################################
 
-## Create data frame based on User ID to aggregate experience and familiarity
+## Create data frame based on User ID
+## record standard deviation of point-centroid distance for each user
 ## Count number of unique users
 obs.count<- count(BEcomplete@data, 'recordedby')
 rown<- nrow(obs.count)
@@ -177,7 +184,7 @@ for (i in 1:rown){
   i=i+1
 }
 ##########################################################################################
-## Run Analysis with SD of each unique user
+## Run Analysis with SD of each unique user's point-centroid distance
 
 maxgcent<- max(obs.count$gcent.sd, na.rm = TRUE)+1
 ## create data frame to store values
@@ -190,7 +197,7 @@ for (i in 1:maxgcent){
   obsnum<- nrow(sub.gcent)
   ## append to dataframe
   
-  ## create list of observer ID's with greater than 'i' observations
+  ## create list of observer ID's 
   obslist<- sub.gcent$recordedby
   ## convert to character format
   obslist=as.character(obslist)
@@ -201,18 +208,24 @@ for (i in 1:maxgcent){
   prop<-mean(in.cpw)
   USR.GC.df<-rbind(USR.GC.df, c(i, obsnum, prop, uqpts))
   i=i+1
-  colnames(USR.GC.df)<-c("Gcentroid.thresh", "Num_Urs_Retained", "Proportion", "Num_Pts_Retained") 
+  colnames(USR.GC.df)<-c("Sdev of Point-Centroid Dist", "Number of Users", 
+                         "Proportion w/in Reference Data", "Number of Observations") 
 }
 save(USR.GC.df, file="USR.GC.df.Rda")
 
 write.csv(USR.GC.df, file = "USR.GC.df.csv")
-
+jpeg('UserID_Centroid_SdevScatter.jpeg')
+plot(USR.GC.df)
+dev.off()
 ##################################################################################
 ## Run example subset
 UE.thresh <- 10
 LK.thresh <-50
-test.subset<- subset(BEcomplete, GcentDist<=LK.thresh )
+test.subset<- subset(BEcomplete, GcentDist<=LK.thresh & obs.count >=UE.thresh )
 in.cpw<- !is.na(over(test.subset, as(cpwBE, "SpatialPolygons")))
 test.prop<-mean(in.cpw)
 nrow(test.subset)
 print(test.prop)
+## save subset of test data points
+dr<- getwd()
+writeOGR(test.subset, dr, "TestData.subset", driver = "ESRI Shapefile", overwrite_layer = TRUE)

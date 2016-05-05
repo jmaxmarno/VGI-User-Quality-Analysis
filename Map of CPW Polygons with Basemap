@@ -1,0 +1,32 @@
+## replot the CPW observations
+library(RgoogleMaps)
+library(sp)
+library(ggplot2)
+library(ggmap)
+
+cpw.area <- readShapePoly("BaldEagleAllMerge.shp")
+crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+cpw.area<- spTransform(cpw.area, crs.geo)
+crs.nad83<- CRS("+proj=utm +zone=13 +datum=NAD83 +units=m +no_defs +ellps=GRS80
+                +towgs84=0,0,0")
+proj4string(cpw.area)=crs.nad83
+cpw.area.84<- spTransform(cpw.area, crs.geo)
+cpw.apts<- fortify(cpw.area.84)
+## for some reason it won't plot this way
+##plot(cpw.apts)
+
+b<- bbox(cpw.area.84)
+library(ggmap)
+mapImage <- get_map(location =b, color = "color", source = "stamen", maptype = "terrain",zoom = 7)
+
+ggmap(mapImage) +
+  geom_polygon(aes(x = long,
+                   y = lat,
+                   group = group),
+               data = cpw.apts,
+               color = 'red',
+               fill = 'red',
+               alpha = 1) 
+labs(x = "Longitude",
+     y = "Latitude") 
+ggtitle("CPW Species Activity Map")
